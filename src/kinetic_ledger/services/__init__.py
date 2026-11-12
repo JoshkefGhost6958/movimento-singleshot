@@ -1,5 +1,5 @@
 """Services package - all Phase-2 microservices."""
-from .motion_ingest import MotionIngestService, MotionUploadRequest, TensorGenerationConfig
+from .motion_ingest import inspect_upload, ingest_upload, MotionUploadRequest, TensorGenerationConfig
 from .gemini_analyzer import GeminiAnalyzerService, GeminiAnalysisRequest
 from .attestation_oracle import AttestationOracle, AttestationConfig, VectorStore
 from .commerce_orchestrator import (
@@ -73,7 +73,8 @@ except ImportError as e:
     _SPADE_EXPORTS = []
 
 __all__ = [
-    "MotionIngestService",
+    "inspect_upload",
+    "ingest_upload",
     "MotionUploadRequest",
     "TensorGenerationConfig",
     "GeminiAnalyzerService",

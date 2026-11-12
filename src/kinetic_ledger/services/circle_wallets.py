@@ -126,6 +126,14 @@ class TransactionStatusResponse(BaseModel):
     error_message: Optional[str] = None
 
 
+class TransactionHistoryResponse(BaseModel):
+    """Wallet transaction history response."""
+
+    wallet_id: str
+    transactions: list[dict[str, Any]]
+    total: int
+
+
 # =============================================================================
 # Circle Wallets Service
 # =============================================================================
@@ -231,11 +239,13 @@ class CircleWalletsService:
             response.raise_for_status()
             data = response.json()
 
+            # Parse real Circle API response
+            wallet_data = data.get("wallet", data)
             wallet = WalletResponse(
-                wallet_id=data.get("walletId", f"wallet_{uuid.uuid4().hex[:16]}"),
-                address=data.get("address", f"0x{uuid.uuid4().hex[:40]}"),
+                wallet_id=wallet_data.get("id", wallet_data.get("walletId")),
+                address=wallet_data.get("address", wallet_data.get("walletAddress")),
                 blockchain="ARC",
-                status=data.get("state", "ACTIVE"),
+                status=wallet_data.get("state", wallet_data.get("status", "ACTIVE")),
                 created_at=int(time.time()),
                 wallet_set_id=self.config.wallet_set_id,
             )
@@ -254,17 +264,7 @@ class CircleWalletsService:
             )
         except Exception as e:
             logger.error(f"Unexpected error creating wallet: {e}")
-            # Return simulated wallet for demo/testing
-            logger.warning("Returning simulated wallet for demo")
-            wallet = WalletResponse(
-                wallet_id=f"wallet_{uuid.uuid4().hex[:16]}",
-                address=f"0x{uuid.uuid4().hex[:40]}",
-                blockchain="ARC",
-                status="ACTIVE",
-                created_at=int(time.time()),
-            )
-            logger.debug(f"[EXIT] create_developer_wallet: simulated wallet")
-            return wallet
+            raise CircleError(f"Failed to create wallet: {str(e)}")
 
     @retry_on_dependency_error(max_attempts=3, min_wait=1, max_wait=10)
     def get_wallet_balance(self, wallet_id: str) -> BalanceResponse:
@@ -287,7 +287,7 @@ class CircleWalletsService:
             response.raise_for_status()
             data = response.json()
 
-            # Extract USDC balance
+            # Extract USDC balance from real API response
             balances = data.get("tokenBalances", [])
             usdc_balance = "0.00"
             for bal in balances:
@@ -314,17 +314,7 @@ class CircleWalletsService:
             )
         except Exception as e:
             logger.error(f"Unexpected error getting balance: {e}")
-            # Return simulated balance for demo
-            logger.warning("Returning simulated balance for demo")
-            balance = BalanceResponse(
-                wallet_id=wallet_id,
-                address="0x0000000000000000000000000000000000000000",
-                balances=[],
-                total_usdc="100.00",  # Demo balance
-                updated_at=int(time.time()),
-            )
-            logger.debug("[EXIT] get_wallet_balance: simulated balance")
-            return balance
+            raise CircleError(f"Failed to get balance: {str(e)}")
 
     # -------------------------------------------------------------------------
     # USDC Transfers
@@ -376,13 +366,15 @@ class CircleWalletsService:
             response.raise_for_status()
             data = response.json()
 
+            # Parse real Circle API response
+            tx_data = data.get("transaction", data)
             transfer = TransferResponse(
-                transfer_id=data.get("id", f"tx_{uuid.uuid4().hex[:16]}"),
+                transfer_id=tx_data.get("id", tx_data.get("transferId")),
                 source_wallet_id=from_wallet_id,
                 destination_address=to_address,
                 amount_usdc=amount_usdc,
-                status=data.get("state", "PENDING"),
-                tx_hash=data.get("txHash"),
+                status=tx_data.get("state", tx_data.get("status", "PENDING")),
+                tx_hash=tx_data.get("txHash"),
                 chain="ARC",
                 created_at=int(time.time()),
             )
@@ -402,21 +394,7 @@ class CircleWalletsService:
             )
         except Exception as e:
             logger.error(f"Unexpected error during transfer: {e}")
-            # Return simulated transfer for demo
-            logger.warning("Returning simulated transfer for demo")
-            transfer = TransferResponse(
-                transfer_id=f"tx_{uuid.uuid4().hex[:16]}",
-                source_wallet_id=from_wallet_id,
-                destination_address=to_address,
-                amount_usdc=amount_usdc,
-                status="CONFIRMED",
-                tx_hash=f"0x{uuid.uuid4().hex}{uuid.uuid4().hex[:32]}",
-                chain="ARC",
-                created_at=int(time.time()),
-                confirmed_at=int(time.time()),
-            )
-            logger.debug("[EXIT] transfer_usdc: simulated transfer")
-            return transfer
+            raise CircleError(f"Failed to transfer USDC: {str(e)}")
 
     @retry_on_dependency_error(max_attempts=3, min_wait=1, max_wait=10)
     def get_transaction_status(self, transfer_id: str) -> TransactionStatusResponse:
@@ -441,7 +419,7 @@ class CircleWalletsService:
 
             status = TransactionStatusResponse(
                 transfer_id=transfer_id,
-                status=data.get("state", "PENDING"),
+                status=data.get("state", data.get("status", "PENDING")),
                 tx_hash=data.get("txHash"),
                 block_number=data.get("blockNumber"),
                 confirmations=data.get("confirmations", 0),
@@ -459,16 +437,55 @@ class CircleWalletsService:
             )
         except Exception as e:
             logger.error(f"Unexpected error getting status: {e}")
-            # Return simulated status for demo
-            status = TransactionStatusResponse(
-                transfer_id=transfer_id,
-                status="CONFIRMED",
-                tx_hash=f"0x{uuid.uuid4().hex}{uuid.uuid4().hex[:32]}",
-                block_number=12345678,
-                confirmations=12,
+            raise CircleError(f"Failed to get transaction status: {str(e)}")
+
+    @retry_on_dependency_error(max_attempts=3, min_wait=1, max_wait=10)
+    def get_wallet_transactions(
+        self,
+        wallet_id: str,
+        limit: int = 20,
+    ) -> TransactionHistoryResponse:
+        """
+        Get transaction history for a wallet.
+
+        Args:
+            wallet_id: Circle wallet ID
+            limit: Maximum number of transactions to return
+
+        Returns:
+            TransactionHistoryResponse with transaction list
+
+        Raises:
+            CircleError: If transaction query fails
+        """
+        logger.info(f"[ENTRY] get_wallet_transactions: wallet_id={wallet_id}, limit={limit}")
+
+        try:
+            response = self._client.get(
+                f"/wallets/{wallet_id}/transactions",
+                params={"pageSize": limit},
             )
-            logger.debug("[EXIT] get_transaction_status: simulated status")
-            return status
+            response.raise_for_status()
+            data = response.json()
+
+            transactions = data.get("transactions", [])
+            logger.info(f"Found {len(transactions)} transactions")
+            logger.debug(f"[EXIT] get_wallet_transactions: count={len(transactions)}")
+            return TransactionHistoryResponse(
+                wallet_id=wallet_id,
+                transactions=transactions,
+                total=len(transactions),
+            )
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Circle API error: {e.response.status_code}")
+            raise CircleError(
+                f"Failed to get transactions: {e.response.status_code}",
+                details={"wallet_id": wallet_id},
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error getting transactions: {e}")
+            raise CircleError(f"Failed to get transactions: {str(e)}")
 
     # -------------------------------------------------------------------------
     # Batch Operations

@@ -14,7 +14,7 @@ from eth_account import Account
 from eth_account.signers.local import LocalAccount
 
 from ..utils.logging import get_logger
-from ..utils.errors import E_DEP_ARC, E_CFG_MISSING
+from ..utils.errors import DependencyError, ConfigMissingError
 
 logger = get_logger(__name__)
 
@@ -125,13 +125,13 @@ class ArcNetworkService:
         self.contract_address = contract_address or os.getenv("NPC_MOTION_REGISTRY_ADDRESS")
         
         if not self.rpc_url:
-            raise E_CFG_MISSING("ARC_TESTNET_RPC_URL not configured")
+            raise ConfigMissingError("ARC_TESTNET_RPC_URL not configured")
         
         # Initialize Web3
         self.w3 = Web3(Web3.HTTPProvider(self.rpc_url))
         
         if not self.w3.is_connected():
-            raise E_DEP_ARC(f"Failed to connect to Arc at {self.rpc_url}")
+            raise DependencyError(f"Failed to connect to Arc at {self.rpc_url}")
         
         logger.info(f"Connected to Arc Network: {self.rpc_url}")
         logger.info(f"Chain ID: {self.w3.eth.chain_id}")
@@ -173,7 +173,7 @@ class ArcNetworkService:
             Dict with transaction hash, motion ID, and gas used
         """
         if not self.contract or not self.account:
-            raise E_CFG_MISSING("Contract or account not initialized")
+            raise ConfigMissingError("Contract or account not initialized")
         
         logger.info(f"Minting motion pack for creator {creator_address}")
         logger.info(f"  IPFS URI: {ipfs_uri}")
@@ -233,7 +233,7 @@ class ArcNetworkService:
             Dict with transaction hash, NPC ID, and gas used
         """
         if not self.contract or not self.account:
-            raise E_CFG_MISSING("Contract or account not initialized")
+            raise ConfigMissingError("Contract or account not initialized")
         
         logger.info(f"Spawning NPC with motion ID {motion_id}")
         
@@ -291,7 +291,7 @@ class ArcNetworkService:
             Dict with transaction hash and gas used
         """
         if not self.contract or not self.account:
-            raise E_CFG_MISSING("Contract or account not initialized")
+            raise ConfigMissingError("Contract or account not initialized")
         
         logger.info(f"Updating NPC {npc_id} state: motion={new_motion_id}, energy={energy_level}")
         
@@ -329,7 +329,7 @@ class ArcNetworkService:
             Dict with motion pack details
         """
         if not self.contract:
-            raise E_CFG_MISSING("Contract not initialized")
+            raise ConfigMissingError("Contract not initialized")
         
         result = self.contract.functions.getMotionPack(motion_id).call()
         
@@ -356,7 +356,7 @@ class ArcNetworkService:
             Dict with NPC state details
         """
         if not self.contract:
-            raise E_CFG_MISSING("Contract not initialized")
+            raise ConfigMissingError("Contract not initialized")
         
         result = self.contract.functions.getNPCState(npc_id).call()
         

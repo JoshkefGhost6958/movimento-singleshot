@@ -554,49 +554,11 @@ async function loadMarketplace() {
             AppState.marketplace = data.blends || [];
         }
     } catch (error) {
-        console.log('Loading sample marketplace data...');
-        // Generate sample blends for demo
-        AppState.marketplace = generateSampleBlends();
+        console.error('Failed to load marketplace:', error);
+        AppState.marketplace = [];
     }
     
     renderMarketplace();
-}
-
-function generateSampleBlends() {
-    const motions = ['capoeira', 'breakdance', 'hip-hop', 'robot', 'salsa', 'kick', 'punch'];
-    const blends = [];
-    
-    for (let i = 0; i < 8; i++) {
-        const numSegments = 2 + Math.floor(Math.random() * 3);
-        const segments = [];
-        
-        for (let j = 0; j < numSegments; j++) {
-            const motion = motions[Math.floor(Math.random() * motions.length)];
-            segments.push({
-                motion,
-                frameStart: j * 30,
-                frameEnd: (j + 1) * 30 + Math.floor(Math.random() * 15),
-                color: Config.MOTION_COLORS[motion]
-            });
-        }
-        
-        const uniqueness = 40 + Math.floor(Math.random() * 50);
-        const price = 5 + (uniqueness / 100) * 2.5;
-        
-        blends.push({
-            id: `blend-${i}`,
-            hash: Array.from(crypto.getRandomValues(new Uint8Array(32)))
-                .map(b => b.toString(16).padStart(2, '0')).join(''),
-            segments,
-            uniqueness,
-            price,
-            creator: `0x${Math.random().toString(16).slice(2, 10)}...${Math.random().toString(16).slice(2, 6)}`,
-            txHash: `0x${Math.random().toString(16).slice(2, 66)}`,
-            timestamp: Date.now() - Math.floor(Math.random() * 86400000)
-        });
-    }
-    
-    return blends;
 }
 
 function renderMarketplace() {
@@ -862,43 +824,43 @@ function animatePolygon() {
 
 // ==================== LIVE UPDATES ====================
 function startLiveUpdates() {
-    // Simulate live transactions
-    setInterval(() => {
-        if (Math.random() > 0.7) {
-            simulateTransaction();
-        }
-    }, 3000);
+    // Fetch real transactions from API
+    refreshTransactions();
     
-    // Update metrics
+    // Update metrics from real data
     setInterval(updateMetrics, 5000);
     
-    // Confirm pending transactions
-    setInterval(() => {
-        AppState.transactions.forEach(tx => {
-            if (!tx.confirmed && Date.now() - tx.timestamp > 5000) {
-                tx.confirmed = true;
-            }
-        });
-        renderTransactions();
-    }, 2000);
+    // Refresh transactions periodically
+    setInterval(refreshTransactions, 15000);
 }
 
-function simulateTransaction() {
-    const types = ['buy', 'sell', 'mint'];
-    const type = types[Math.floor(Math.random() * types.length)];
+async function refreshTransactions() {
+    if (!AppState.wallet.id) return;
     
-    const tx = {
-        type,
-        hash: `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-            .map(b => b.toString(16).padStart(2, '0')).join('')}`,
-        amount: 5 + Math.random() * 25,
-        from: `0x${Math.random().toString(16).slice(2, 10)}...${Math.random().toString(16).slice(2, 6)}`,
-        blendId: `blend-${Date.now()}`,
-        timestamp: Date.now(),
-        confirmed: false
-    };
-    
-    addTransaction(tx);
+    try {
+        const response = await fetch(`/api/v2/wallets/${AppState.wallet.id}/transactions?limit=20`);
+        if (response.ok) {
+            const data = await response.json();
+            if (data.transactions && data.transactions.length > 0) {
+                // Map real transactions to UI format
+                const mappedTxs = data.transactions.map(tx => ({
+                    type: tx.type === 'TRANSFER' ? 'buy' : 'mint',
+                    hash: tx.txHash || tx.id || `0x${Date.now().toString(16)}`,
+                    amount: parseFloat(tx.amount || tx.amounts?.[0] || 0),
+                    from: tx.sourceAddress || tx.walletId || AppState.wallet.address,
+                    blendId: tx.metadata?.blendId || `blend-${tx.id}`,
+                    timestamp: tx.createDate ? new Date(tx.createDate).getTime() : Date.now(),
+                    confirmed: tx.state === 'CONFIRMED' || tx.status === 'CONFIRMED'
+                }));
+                
+                AppState.transactions = [...mappedTxs, ...AppState.transactions].slice(0, 50);
+                renderTransactions();
+                updateMetrics();
+            }
+        }
+    } catch (error) {
+        console.error('Failed to refresh transactions:', error);
+    }
 }
 
 function updateMetrics() {

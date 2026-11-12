@@ -36,7 +36,7 @@ steps:
       - '--max-instances'
       - '10'
       - '--set-env-vars'
-      - 'SKIP_GCS_SYNC=true'
+      - 'SKIP_R2_SYNC=true'
 
 images:
   - 'gcr.io/$PROJECT_ID/kinetic-ledger:$COMMIT_SHA'

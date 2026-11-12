@@ -157,7 +157,7 @@ class GeminiOracleAttestor:
         optionally with vision analysis of the preview video.
         
         Args:
-            preview_uri: GCS URI for preview video/image
+            preview_uri: R2 URI for preview video/image
             tensor_hash: Keccak256 hash of tensor data
             blend_segments: Blend plan segments
             existing_motion_ids: IDs of potentially similar motions

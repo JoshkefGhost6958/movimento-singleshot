@@ -27,11 +27,28 @@ logger = get_logger(__name__)
 
 # Mixamo standard joint names in order
 MIXAMO_JOINT_ORDER = [
-    "Hips", "Spine", "Spine1", "Spine2", "Neck", "Head",
-    "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",
-    "RightShoulder", "RightArm", "RightForeArm", "RightHand",
-    "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase",
-    "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase",
+    "Hips", 
+    "Spine",
+    "Spine1", 
+    "Spine2", 
+    "Neck", 
+    "Head",
+    "LeftShoulder", 
+    "LeftArm",
+    "LeftForeArm", 
+    "LeftHand",
+    "RightShoulder", 
+    "RightArm",
+    "RightForeArm", 
+    "RightHand",
+    "LeftUpLeg", 
+    "LeftLeg", 
+    "LeftFoot", 
+    "LeftToeBase",
+    "RightUpLeg", 
+    "RightLeg", 
+    "RightFoot", 
+    "RightToeBase",
 ]
 
 # Default joint positions for Mixamo T-pose (approximate)

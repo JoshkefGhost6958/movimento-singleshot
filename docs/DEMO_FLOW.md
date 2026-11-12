@@ -4,7 +4,7 @@ This is a step-by-step script for the Phase-2 hackathon demo: usage-based NPC ge
 
 ## Prereqs
 - Circle Wallets for payer, agent treasury, creator
-- Object storage bucket (GCS/S3) for BVH/FBX, tensors, previews
+- Object storage bucket (Cloudflare R2) for BVH/FBX, tensors, previews
 - FastAPI services: ingest, analysis, oracle, commerce
 - Arc RPC access and verifying contract address
 

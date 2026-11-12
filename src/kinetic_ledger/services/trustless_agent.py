@@ -14,18 +14,12 @@ import uuid
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
-from ..schemas.models import (
-    MotionBlendRequest,
-    MotionAsset,
-    GeminiAnalysis,
-    SimilarityCheck,
-    MotionCanonicalPack,
-    MintAuthorization,
-    UsageMeterEvent,
-)
+from ..schemas.motions import MotionAssetResponse, MotionCanonicalPackResponse, MotionBlendRequestResponse
+from ..models.gemini_models import GeminiAnalysis,SimilarityCheck
+from ..models.x_402_payments import MintAuthorization, UsageMeterEvent
 from ..utils.logging import setup_logging, set_correlation_id, get_correlation_id
 from ..utils.errors import DecisionError, NoveltyRejectionError, ManualReviewRequiredError
-from .motion_ingest import MotionIngestService, MotionUploadRequest, TensorGenerationConfig
+from .motion_ingest import ingest_upload, MotionUploadRequest, TensorGenerationConfig
 from .gemini_analyzer import GeminiAnalyzerService, GeminiAnalysisRequest
 from .attestation_oracle import AttestationOracle, AttestationConfig, VectorStore
 from .commerce_orchestrator import (
@@ -60,10 +54,10 @@ class TrustlessAgentConfig(BaseModel):
 class AgentLoopResult(BaseModel):
     """Result of trustless agent loop execution."""
     correlation_id: str
-    motion_asset: MotionAsset
+    motion_asset: MotionAssetResponse
     gemini_analysis: GeminiAnalysis
     similarity_check: SimilarityCheck
-    canonical_pack: MotionCanonicalPack
+    canonical_pack: MotionCanonicalPackResponse
     mint_authorization: Optional[MintAuthorization] = None
     usage_event: Optional[UsageMeterEvent] = None
     decision: str  # "MINT", "REJECT", "REVIEW"
@@ -92,9 +86,7 @@ class TrustlessAgentLoop:
         self.config = config
         
         # Initialize services
-        self.ingest_service = MotionIngestService(
-            storage_url=config.storage_url,
-        )
+        self.storage_url = config.storage_url
         
         self.gemini_service = GeminiAnalyzerService(
             gemini_api_key=config.gemini_api_key,
@@ -121,7 +113,7 @@ class TrustlessAgentLoop:
     def execute_blend_workflow(
         self,
         upload_request: MotionUploadRequest,
-        blend_request: MotionBlendRequest,
+        blend_request: MotionBlendRequestResponse,
         payment_proof: str,
         creator_address: str,
     ) -> AgentLoopResult:
@@ -151,9 +143,8 @@ class TrustlessAgentLoop:
         
         # Step 1: Motion Ingest
         logger.info("Step 1/6: Motion Ingest")
-        motion_asset = self.ingest_service.ingest_upload(
+        motion_asset = ingest_upload(
             request=upload_request,
-            correlation_id=correlation_id,
         )
         
         # Step 2: Gemini Analysis
@@ -201,7 +192,7 @@ class TrustlessAgentLoop:
             logger.info("Step 5/6: Signing Mint Authorization")
             mint_authorization = self.attestation_oracle.sign_mint_authorization(
                 pack=canonical_pack,
-                to_address=upload_request.owner_wallet,
+                to_address=upload_request.institution_wallet,
             )
         elif decision == "REJECT":
             logger.warning("Motion rejected due to low novelty")
@@ -229,7 +220,7 @@ class TrustlessAgentLoop:
             max_seconds = blend_request.policy.get("max_seconds", 10)
             
             payment_request = PaymentIntentRequest(
-                user_wallet=blend_request.user_wallet,
+                user_wallet=blend_request.institution_wallet,
                 product="npc_generation",
                 unit="seconds_generated",
                 quantity=float(max_seconds),
@@ -280,7 +271,7 @@ class TrustlessAgentLoop:
     
     def execute_library_blend(
         self,
-        blend_request: MotionBlendRequest,
+        blend_request: MotionBlendRequestResponse,
         library_motion_ids: List[str],
         payment_proof: str,
         creator_address: str,

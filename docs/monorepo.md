@@ -43,7 +43,7 @@ kinetic-ledger/
         config.py
         logging.py
         schemas.py                  # Pydantic DTOs (MotionBlend, AttestationRequest)
-        storage.py                  # S3/GCS/local abstraction
+        storage.py                  # R2 (S3-compatible)/local abstraction
         queue.py                    # Redis/CloudTasks abstraction
       tests/
         test_health.py

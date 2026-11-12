@@ -12,7 +12,7 @@ import json
 from google import genai
 from google.genai import types
 
-from ..schemas.models import (
+from ..models.gemini_models import (
     GeminiAnalysis,
     ModelDescriptor,
     GeminiInputs,

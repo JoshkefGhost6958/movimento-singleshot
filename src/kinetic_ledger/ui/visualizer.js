@@ -662,6 +662,31 @@ class MotionVisualizer {
      * Setup event listeners
      */
     setupEventListeners() {
+        // Navbar menu-toggle buttons → collapsible panels
+        const menuToggles = document.querySelectorAll('.menu-toggle[data-panel]');
+        const panelsContainer = document.getElementById('collapsiblePanels');
+        menuToggles.forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                const panelId = toggle.dataset.panel + 'Panel';
+                const targetPanel = document.getElementById(panelId);
+                const isAlreadyActive = toggle.classList.contains('active');
+
+                // Deactivate all toggles and panels
+                menuToggles.forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.collapsible-panel').forEach(p => p.classList.remove('active'));
+
+                if (!isAlreadyActive && targetPanel) {
+                    // Activate the clicked one
+                    toggle.classList.add('active');
+                    targetPanel.classList.add('active');
+                    panelsContainer.classList.add('expanded');
+                } else {
+                    // Clicking the already-active toggle collapses the bar
+                    panelsContainer.classList.remove('expanded');
+                }
+            });
+        });
+
         // Wallet connection
         document.getElementById('connectWalletBtn').addEventListener('click', () => this.connectWallet());
         document.getElementById('disconnectWalletBtn').addEventListener('click', () => this.disconnectWallet());

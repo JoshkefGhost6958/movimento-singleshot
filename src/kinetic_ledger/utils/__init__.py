@@ -5,7 +5,7 @@ Provides utility functions and helpers for the motion blending system.
 """
 from .logging import get_logger
 from .errors import KineticLedgerError
-from .idempotency import generate_idempotency_key, NonceManager
+#from .idempotency import generate_idempotency_key, NonceManager
 
 # FBX loader (optional, may fail without scipy)
 try:
@@ -23,7 +23,7 @@ except ImportError:
 
 __all__ = [
     "get_logger",
-    "KineticLedgerError", 
+    #"KineticLedgerError", 
     "generate_idempotency_key",
     "NonceManager",
 ]

@@ -1,0 +1,42 @@
+# Kinetic Ledger (Phase-2) dependencies.
+#
+# Mirrors pyproject.toml:
+#   - Core runtime dependencies   -> [project].dependencies
+#   - ML extras                    -> [project.optional-dependencies].ml
+#   - Dev/test tooling             -> [project.optional-dependencies].dev
+#   - Warehouse extra              -> boto3 (already listed in core)
+#
+# Install with:
+#   pip install -r requirements.txt
+
+# --- Core runtime dependencies ---
+fastapi>=0.115.0
+pydantic>=2.7.0
+uvicorn>=0.30.0
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+redis>=5.0.0
+psycopg2-binary>=2.9.0
+eth-utils>=2.3.0
+httpx>=0.27.0
+tenacity>=8.2.0
+google-genai>=1.50.0
+eth-account>=0.10.0
+qdrant-client>=1.7.0
+web3>=6.0.0
+boto3>=1.34.0
+google-cloud-secret-manager>=2.18.0
+
+# --- ML extras ([project.optional-dependencies].ml) ---
+torch>=2.0.0
+scipy>=1.11.0
+
+# --- Dev/test tooling ([project.optional-dependencies].dev) ---
+# (torch and scipy are listed above; they are also part of the dev extra)
+pytest>=7.0
+pytest-asyncio>=0.21.0
+black>=23.0
+ruff>=0.1.0
+mypy>=1.0
+python-dotenv>=1.0.0
+circle-developer-controlled-wallets>=9.0.0

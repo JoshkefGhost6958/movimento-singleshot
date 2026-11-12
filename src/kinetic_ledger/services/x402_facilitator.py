@@ -10,6 +10,7 @@ Features:
 - Configurable wait behavior (simulated, submitted, confirmed)
 - Arc chain support with USDC native gas token
 """
+import os
 import time
 import uuid
 from typing import Any, Optional, Literal
@@ -53,12 +54,22 @@ class X402FacilitatorConfig(BaseModel):
     """Configuration for x402 Facilitator service."""
     
     # thirdweb settings
-    thirdweb_secret_key: Optional[str] = None
+    thirdweb_secret_key: Optional[str] = Field(
+        default_factory=lambda: os.getenv("THIRDWEB_SECRET_KEY")
+    )
     server_wallet_address: str = Field(
-        default="0x0000000000000000000000000000000000000000",
+        default_factory=lambda: os.getenv(
+            "SERVER_WALLET_ADDRESS",
+            "0x0000000000000000000000000000000000000000",
+        ),
         pattern=r"^0x[a-fA-F0-9]{40}$"
     )
-    facilitator_url: str = THIRDWEB_FACILITATOR_URL
+    facilitator_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "X402_FACILITATOR_URL",
+            THIRDWEB_FACILITATOR_URL,
+        )
+    )
     
     # Settlement behavior
     wait_until: Literal["simulated", "submitted", "confirmed"] = Field(
@@ -265,17 +276,17 @@ class X402FacilitatorService:
                 error_message=f"HTTP error: {e.response.status_code}",
             )
             
-        except Exception as e:
-            logger.warning(f"Facilitator unavailable, using simulated verification: {e}")
-            # Simulated verification for demo
+        except httpx.RequestError as e:
+            logger.error(f"Facilitator connection error: {e}")
             result = X402VerificationResult(
-                verified=True,
+                verified=False,
                 receipt_id=receipt_id,
                 payment_data=payment_data,
                 amount_usdc=expected_amount_usdc,
-                payer_address=f"0x{uuid.uuid4().hex[:40]}",
-                signature_valid=True,
+                payer_address="0x0",
+                signature_valid=False,
                 timestamp=timestamp,
+                error_message=f"Connection error: {str(e)}",
             )
         
         logger.debug(f"[EXIT] verify_payment: verified={result.verified}")
@@ -369,20 +380,16 @@ class X402FacilitatorService:
                 error_message=f"HTTP error: {e.response.status_code}",
             )
             
-        except Exception as e:
-            logger.warning(f"Facilitator unavailable, using simulated settlement: {e}")
+        except httpx.RequestError as e:
+            logger.error(f"Facilitator connection error: {e}")
             settlement_time_ms = int((time.time() - start_time) * 1000)
-            
-            # Simulated settlement for demo
             result = X402SettlementResult(
-                settled=True,
+                settled=False,
                 receipt_id=receipt_id,
-                tx_hash=f"0x{uuid.uuid4().hex}{uuid.uuid4().hex[:32]}",
-                block_number=12345678,
-                gas_used="21000",
-                gas_sponsored=True,
+                gas_sponsored=False,
                 chain_id=self.config.chain_id,
                 settlement_time_ms=settlement_time_ms,
+                error_message=f"Connection error: {str(e)}",
             )
         
         # Track settlement

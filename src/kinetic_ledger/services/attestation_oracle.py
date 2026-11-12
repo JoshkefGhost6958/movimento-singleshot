@@ -13,15 +13,16 @@ import numpy as np
 from typing import List, Optional, Tuple, Dict, Any
 from pydantic import BaseModel, Field
 
-from ..schemas.models import (
+from ..models.gemini_models import (
     SimilarityCheck,
     FeatureSpace,
     KNNNeighbor,
     KNNResult,
     RkCNNResult,
-    Decision,
-    MotionCanonicalPack,
-    MintAuthorization,
+    Decision)
+from ..models.motions import MotionCanonicalPack
+    
+from ..models.x_402_payments import (MintAuthorization,
     MintMessage,
     RoyaltyObligation,
     DerivativeDetectionResult,
@@ -34,6 +35,7 @@ from ..schemas.models import (
     DEFAULT_PLATFORM_SHARE_BPS,
     DEFAULT_OPS_SHARE_BPS,
 )
+
 from ..utils.logging import setup_logging, set_correlation_id
 from ..utils.errors import DecisionError, NoveltyRejectionError, ManualReviewRequiredError
 from ..utils.canonicalize import keccak256_json

@@ -5,3 +5,5 @@ configuration.json
 .idea/
 .vscode/
 .venv/
+venv/
+recovery/

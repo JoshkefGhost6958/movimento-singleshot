@@ -13,7 +13,7 @@ import uuid
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
-from ..schemas.models import (
+from ..models.x_402_payments import (
     UsageMeterEvent,
     Metering,
     X402,
@@ -63,30 +63,48 @@ class CircleClient:
     """
     Circle API client wrapper.
     
-    In production: integrate with Circle SDK for:
+    Integrates with Circle SDK for:
     - Wallet creation and management
     - Payment processing
     - USDC transfers via Gateway/CCTP
-    
-    For demo: simulate Circle API responses.
     """
     
     def __init__(self, config: CircleWalletConfig):
         self.config = config
+        import httpx
+        self._client = httpx.Client(
+            base_url=config.api_endpoint,
+            timeout=30,
+            headers={
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+            },
+        )
     
     @retry_on_dependency_error(max_attempts=3)
     def create_wallet(self, user_id: str) -> Dict[str, Any]:
         """Create Circle wallet for user."""
         logger.info(f"Creating Circle wallet for user: {user_id}")
         
-        # Simulate API call
-        wallet_id = f"wallet_{uuid.uuid4().hex[:16]}"
+        import uuid
+        response = self._client.post(
+            "/w3s/developer/wallets",
+            json={
+                "idempotencyKey": str(uuid.uuid4()),
+                "accountType": "EOA",
+                "blockchains": ["ARC"],
+                "metadata": [{"name": "user_id", "value": user_id}],
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        wallet_data = data.get("wallet", data)
         
         return {
-            "wallet_id": wallet_id,
-            "blockchain": "ETH",
-            "address": f"0x{'0' * 39}{user_id[:1]}",
-            "status": "active",
+            "wallet_id": wallet_data.get("id", wallet_data.get("walletId")),
+            "blockchain": "ARC",
+            "address": wallet_data.get("address", wallet_data.get("walletAddress")),
+            "status": wallet_data.get("state", wallet_data.get("status", "active")),
         }
     
     @retry_on_dependency_error(max_attempts=3)
@@ -102,15 +120,27 @@ class CircleClient:
             extra={"wallet_id": wallet_id},
         )
         
-        # Simulate API call
-        intent_id = f"pi_{uuid.uuid4().hex[:16]}"
+        import uuid
+        response = self._client.post(
+            "/w3s/payments/intents",
+            json={
+                "idempotencyKey": str(uuid.uuid4()),
+                "walletId": wallet_id,
+                "amount": amount_usdc,
+                "currency": "USD",
+                "description": description,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        intent_data = data.get("paymentIntent", data)
         
         return {
-            "intent_id": intent_id,
+            "intent_id": intent_data.get("id", intent_data.get("intentId")),
             "wallet_id": wallet_id,
             "amount": amount_usdc,
             "currency": "USDC",
-            "status": "pending",
+            "status": intent_data.get("status", "pending"),
             "created_at": int(time.time()),
         }
     
@@ -128,17 +158,29 @@ class CircleClient:
             extra={"chain": chain},
         )
         
-        # Simulate blockchain transaction
-        tx_hash = f"0x{uuid.uuid4().hex}{uuid.uuid4().hex[:32]}"
+        import uuid
+        response = self._client.post(
+            f"/w3s/developer/wallets/{from_wallet_id}/transactions",
+            json={
+                "idempotencyKey": str(uuid.uuid4()),
+                "amounts": [amount_usdc],
+                "destinationAddress": to_address,
+                "blockchain": chain,
+                "tokenId": "USDC",
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        tx_data = data.get("transaction", data)
         
         return {
-            "tx_hash": tx_hash,
+            "tx_hash": tx_data.get("txHash"),
             "chain": chain,
             "from": from_wallet_id,
             "to": to_address,
             "amount": amount_usdc,
-            "status": "confirmed",
-            "block_number": 12345678,
+            "status": tx_data.get("state", tx_data.get("status", "pending")),
+            "block_number": tx_data.get("blockNumber"),
         }
 
 
@@ -146,11 +188,17 @@ class X402Verifier:
     """
     x402 payment proof verifier.
     
-    In production: integrate with x402 facilitator to verify payment proofs.
+    Integrates with x402 facilitator to verify payment proofs.
     """
     
-    def __init__(self, facilitator_url: str = "https://x402.example.com"):
+    def __init__(self, facilitator_url: str = "https://x402-facilitator.thirdweb.com"):
         self.facilitator_url = facilitator_url
+        import httpx
+        self._client = httpx.Client(
+            base_url=facilitator_url,
+            timeout=30,
+            headers={"Content-Type": "application/json"},
+        )
     
     @retry_on_dependency_error(max_attempts=3)
     def verify_payment_proof(
@@ -170,15 +218,32 @@ class X402Verifier:
         """
         logger.info(f"Verifying x402 payment proof")
         
-        # Simulate verification
-        receipt_id = f"x402_{uuid.uuid4().hex[:16]}"
-        
-        return {
-            "verified": True,
-            "receipt_id": receipt_id,
-            "amount": expected_amount,
-            "timestamp": int(time.time()),
-        }
+        try:
+            response = self._client.post(
+                "/verify",
+                json={
+                    "paymentData": proof,
+                    "expectedAmount": expected_amount,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            return {
+                "verified": data.get("verified", False),
+                "receipt_id": data.get("receiptId", f"x402_{uuid.uuid4().hex[:16]}"),
+                "amount": data.get("amount", expected_amount),
+                "timestamp": int(time.time()),
+            }
+        except Exception as e:
+            logger.error(f"x402 verification failed: {e}")
+            return {
+                "verified": False,
+                "receipt_id": f"x402_{uuid.uuid4().hex[:16]}",
+                "amount": expected_amount,
+                "timestamp": int(time.time()),
+                "error": str(e),
+            }
 
 
 class CommerceOrchestrator:
@@ -509,24 +574,38 @@ class CommerceOrchestrator:
             loop = asyncio.get_event_loop()
             
             if royalty_chain:
+                # Build payouts from royalty chain nodes
+                from ..schemas.models import PayoutItem
+                payouts = [
+                    PayoutItem(
+                        to=node.wallet,
+                        amount_usdc=f"{total_usdc * (node.share_bps / 10000):.6f}",
+                        label=node.role,
+                    )
+                    for node in royalty_chain.nodes
+                    if node.share_bps > 0
+                ]
+                
                 # Use batch recursive transfer for royalty chains
                 result = loop.run_until_complete(
                     self._gasless_executor.sponsor_royalty_payout(
                         royalty_chain=royalty_chain,
-                        base_amount=total_usdc,
+                        payouts=payouts,
+                        source_wallet=creator_address,
                     )
                 )
                 return {
-                    "tx_hash": result.receipts[0].tx_hash if result.receipts else "",
+                    "tx_hash": result.tx_hashes[0] if result.tx_hashes else "",
                     "gasless": True,
-                    "total_payouts": result.total_paid,
+                    "total_payouts": result.successful_transfers,
                 }
             else:
                 # Single transfer
                 result = loop.run_until_complete(
                     self._gasless_executor.send_gasless_tx(
                         to_address=creator_address,
-                        amount_usdc=total_usdc,
+                        amount_usdc=f"{total_usdc:.6f}",
+                        user_wallet=creator_address,
                     )
                 )
                 return {
@@ -632,20 +711,35 @@ class CommerceOrchestrator:
         
         try:
             import asyncio
+            import uuid
+            import time
             from ..schemas.models import PaymentTriggerEvent
             
             loop = asyncio.get_event_loop()
             
+            # Build trigger event with correct fields
             trigger_event = PaymentTriggerEvent(
+                event_id=f"pay_{uuid.uuid4().hex[:16]}",
+                pack_hash=f"0x{'0' * 64}",  # Placeholder pack hash
                 motion_id="auto_" + tx_hash[:16],
-                arc_tx_hash=tx_hash,
-                total_usdc=total_usdc,
+                tx_hash=tx_hash,
                 creator_address=creator_address,
+                payout_amount_usdc=f"{total_usdc:.6f}",
                 royalty_chain=royalty_chain,
+                triggered_at=int(time.time()),
+                status="PROCESSING",
             )
             
+            # Call trigger_creator_payout with keyword args
             loop.run_until_complete(
-                self._payment_automation.trigger_creator_payout(trigger_event)
+                self._payment_automation.trigger_creator_payout(
+                    pack_hash=trigger_event.pack_hash,
+                    tx_hash=trigger_event.tx_hash,
+                    creator_address=trigger_event.creator_address,
+                    payout_amount_usdc=trigger_event.payout_amount_usdc,
+                    motion_id=trigger_event.motion_id,
+                    royalty_chain=trigger_event.royalty_chain,
+                )
             )
             
             logger.info(f"Auto-payout triggered for tx: {tx_hash[:16]}")
@@ -752,18 +846,34 @@ class CommerceOrchestrator:
         
         # Step 3: Execute royalty payouts
         if use_gasless and self._gasless_executor:
+            # Build payouts from royalty chain nodes
+            from ..schemas.models import PayoutItem
+            payouts = [
+                PayoutItem(
+                    to=node.wallet,
+                    amount_usdc=f"{expected_amount * (node.share_bps / 10000):.6f}",
+                    label=node.role,
+                )
+                for node in royalty_chain.nodes
+                if node.share_bps > 0
+            ]
+            
             # Gasless batch payout
             result = await self._gasless_executor.sponsor_royalty_payout(
                 royalty_chain=royalty_chain,
-                base_amount=expected_amount,
+                payouts=payouts,
+                source_wallet=creator_address,
             )
         elif self._payment_automation:
             # Standard payout via Circle
-            payouts = await self._payment_automation.calculate_recursive_payouts(
+            payout_result = await self._payment_automation.calculate_recursive_payouts(
+                total_usdc=expected_amount,
                 royalty_chain=royalty_chain,
-                base_amount=expected_amount,
             )
-            result = await self._payment_automation.process_royalty_payments(payouts)
+            result = await self._payment_automation.process_royalty_payments(
+                royalty_chain=royalty_chain,
+                total_usdc=f"{expected_amount:.6f}",
+            )
         else:
             raise SettlementError("No payout executor available")
         
@@ -787,7 +897,7 @@ class CommerceOrchestrator:
             return {"error": "Gasless executor not available"}
         
         balance = await self._gasless_executor.get_gas_budget_balance()
-        threshold = self._gasless_executor.config.initial_budget * GAS_SPONSOR_REPLENISH_THRESHOLD
+        threshold = self._gasless_executor.config.max_gas_budget_usdc * GAS_SPONSOR_REPLENISH_THRESHOLD
         
         result = {
             "current_balance": balance,
@@ -800,7 +910,9 @@ class CommerceOrchestrator:
             logger.warning(
                 f"Gas budget below threshold: {balance:.4f} < {threshold:.4f}"
             )
-            await self._gasless_executor.replenish_gas_budget()
+            # Replenish to threshold level
+            replenish_amount = threshold - balance
+            await self._gasless_executor.replenish_gas_budget(amount_usdc=replenish_amount)
             result["replenished"] = True
             result["new_balance"] = await self._gasless_executor.get_gas_budget_balance()
         

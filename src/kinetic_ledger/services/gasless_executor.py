@@ -11,6 +11,7 @@ Features:
 - Batch recursive transfers for multi-recipient settlements
 - 40% auto-replenish gas sponsorship budget
 """
+import os
 import time
 import uuid
 from typing import Any, Optional
@@ -18,7 +19,7 @@ from typing import Any, Optional
 import httpx
 from pydantic import BaseModel, Field
 
-from ..schemas.models import (
+from ..models.x_402_payments import (
     GaslessReceipt,
     PayoutItem,
     RoyaltyChain,
@@ -59,12 +60,22 @@ class GaslessExecutorConfig(BaseModel):
     """Configuration for Gasless Executor service."""
     
     # thirdweb Engine settings
-    engine_url: str = Field(default=THIRDWEB_ENGINE_URL)
-    engine_access_token: Optional[str] = None
+    engine_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "THIRDWEB_ENGINE_URL",
+            THIRDWEB_ENGINE_URL,
+        )
+    )
+    engine_access_token: Optional[str] = Field(
+        default_factory=lambda: os.getenv("THIRDWEB_SECRET_KEY")
+    )
     
     # Paymaster settings
     paymaster_address: str = Field(
-        default=DEFAULT_PAYMASTER_ADDRESS,
+        default_factory=lambda: os.getenv(
+            "PAYMASTER_ADDRESS",
+            DEFAULT_PAYMASTER_ADDRESS,
+        ),
         pattern=r"^0x[a-fA-F0-9]{40}$"
     )
     
@@ -285,35 +296,14 @@ class GaslessExecutor:
             )
             
         except httpx.HTTPStatusError as e:
-            logger.error(f"Engine gasless error: {e.response.status_code}")
-            result = GaslessTransactionResult(
-                tx_id=tx_id,
-                status="FAILED",
-                gas_sponsored_usdc="0.00",
-                paymaster_used=False,
-                eip7702_used=False,
-                chain_id=self.config.chain_id,
-                submitted_at=timestamp,
-                error_message=f"HTTP error: {e.response.status_code}",
+            logger.error(f"Engine gasless error: {e.response.status_code} - {e.response.text}")
+            raise SettlementError(
+                f"Gasless transaction failed: {e.response.status_code}",
+                details={"response": e.response.text},
             )
-            
-        except Exception as e:
-            logger.warning(f"Engine unavailable, using simulated execution: {e}")
-            
-            # Simulated execution for demo
-            self._gas_balance_usdc -= estimated_gas
-            
-            result = GaslessTransactionResult(
-                tx_id=tx_id,
-                tx_hash=f"0x{uuid.uuid4().hex}{uuid.uuid4().hex[:32]}",
-                status="CONFIRMED",
-                gas_sponsored_usdc=f"{estimated_gas:.6f}",
-                paymaster_used=True,
-                eip7702_used=True,
-                chain_id=self.config.chain_id,
-                submitted_at=timestamp,
-                confirmed_at=int(time.time()),
-            )
+        except httpx.RequestError as e:
+            logger.error(f"Engine connection error: {e}")
+            raise SettlementError(f"Failed to reach thirdweb Engine: {str(e)}")
         
         # Track transaction
         self._pending_txs[tx_id] = result
@@ -499,6 +489,15 @@ class GaslessExecutor:
     # -------------------------------------------------------------------------
     # Gas Budget Management
     # -------------------------------------------------------------------------
+    
+    def get_gas_budget_balance(self) -> float:
+        """
+        Get current gas sponsorship budget balance.
+        
+        Returns:
+            Current USDC balance in the gas sponsorship budget
+        """
+        return self._gas_balance_usdc
     
     def get_gas_budget_status(self) -> dict[str, Any]:
         """

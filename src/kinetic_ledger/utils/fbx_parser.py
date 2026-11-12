@@ -1,85 +1,88 @@
-"""
-FBX Parser Wrapper.
+"""FBX parsing backed by the installed :mod:`ufbx` parser.
 
-Provides a simple interface for the SPADE blend endpoint to parse FBX files.
-This wraps the fbx_loader module for API compatibility.
+Parsing failures deliberately propagate. Returning fabricated motion data makes
+an ingest look successful while corrupting every downstream exchange.
 """
-import numpy as np
-from typing import Tuple, Dict, Any, Optional
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from .fbx_loader import load_fbx_motion, FBXMotionData, MIXAMO_JOINT_ORDER
-from .logging import get_logger
+import numpy as np
 
-logger = get_logger(__name__)
+
+@dataclass(frozen=True)
+class ParsedFBX:
+    positions: np.ndarray
+    joint_names: list[str]
+    fps: float
+    frame_count: int
+    metadata: dict[str, Any]
 
 
 class FBXParser:
-    """Simple FBX parser for API endpoints."""
-    
-    def __init__(self):
-        self.joint_order = MIXAMO_JOINT_ORDER
-    
-    def parse_fbx(self, fbx_path: str) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """
-        Parse FBX file and return positions array and metadata.
-        
-        Args:
-            fbx_path: Path to FBX file
-            
-        Returns:
-            Tuple of (positions [T, J, 3], metadata dict)
-        """
-        logger.info(f"[ENTRY] FBXParser.parse_fbx: {fbx_path}")
-        
+    """Parse FBX bytes with pyufbx and expose the parsed skeleton data."""
+
+    def parse_fbx_bytes(self, content: bytes, source_file: str = "upload.fbx") -> ParsedFBX:
+        if not content:
+            raise ValueError("FBX content is empty")
         try:
-            # Load motion data using fbx_loader
-            motion_data = load_fbx_motion(fbx_path)
-            
-            # Extract positions array
-            positions = motion_data.positions  # [T, J, 3]
-            
-            # Build metadata
-            metadata = {
-                "num_frames": motion_data.num_frames,
-                "num_joints": motion_data.num_joints,
-                "fps": motion_data.fps,
-                "joint_names": motion_data.joint_names,
-                "source_file": motion_data.source_file,
-            }
-            
-            logger.info(
-                f"[EXIT] FBXParser.parse_fbx: "
-                f"frames={motion_data.num_frames}, joints={motion_data.num_joints}"
-            )
-            
-            return positions, metadata
-            
-        except Exception as e:
-            logger.error(f"FBX parsing failed: {e}")
-            # Return synthetic data as fallback
-            T = 120
-            J = len(self.joint_order)
-            positions = np.random.randn(T, J, 3).astype(np.float32) * 0.3
-            
-            metadata = {
-                "num_frames": T,
-                "num_joints": J,
-                "fps": 30.0,
-                "joint_names": self.joint_order,
-                "source_file": str(fbx_path),
-                "synthetic": True,
-            }
-            
-            return positions, metadata
+            import ufbx
+        except ImportError as exc:  # pragma: no cover - deployment configuration
+            raise RuntimeError("pyufbx is required for FBX ingestion") from exc
+        try:
+            scene = ufbx.load_memory(content)
+        except Exception as exc:
+            raise ValueError(f"Invalid or unsupported FBX file: {exc}") from exc
+
+        bones = [node for node in scene.nodes if node.bone is not None]
+        if not bones:
+            raise ValueError("FBX contains no skeleton bones")
+        joint_names = [str(node.name) for node in bones]
+        positions = np.asarray(
+            [[float(node.world_transform[3, axis]) for axis in range(3)] for node in bones],
+            dtype=np.float32,
+        )[np.newaxis, :, :]
+        fps = float(scene.settings.frames_per_second or 30.0)
+        stack = scene.anim_stacks[0] if scene.anim_stacks else None
+        if stack is None:
+            animation_start, animation_end, frame_count = 0.0, 0.0, 1
+        else:
+            animation_start, animation_end = float(stack.time_begin), float(stack.time_end)
+            frame_count = max(1, round((animation_end - animation_start) * fps) + 1)
+        return ParsedFBX(
+            positions=positions,
+            joint_names=joint_names,
+            fps=fps,
+            frame_count=frame_count,
+            metadata={
+                "parser": "pyufbx",
+                "source_file": source_file,
+                "animation_stack_count": len(scene.anim_stacks),
+                "animation_start_seconds": animation_start,
+                "animation_end_seconds": animation_end,
+                "frame_count": frame_count,
+                "joint_count": len(joint_names),
+                "joint_names": joint_names,
+                "source_fps": fps,
+            },
+        )
+
+    def parse_fbx(self, fbx_path: str) -> tuple[np.ndarray, dict[str, Any]]:
+        """Compatibility wrapper used by the SPADE route."""
+        path = Path(fbx_path)
+        parsed = self.parse_fbx_bytes(path.read_bytes(), source_file=path.name)
+        metadata = dict(parsed.metadata)
+        metadata.update(num_frames=parsed.frame_count, num_joints=len(parsed.joint_names), fps=parsed.fps)
+        return parsed.positions, metadata
 
 
-# Singleton instance
-_parser_instance: Optional[FBXParser] = None
+_parser_instance: FBXParser | None = None
 
 
 def get_fbx_parser() -> FBXParser:
-    """Get or create the FBX parser singleton."""
     global _parser_instance
     if _parser_instance is None:
         _parser_instance = FBXParser()
